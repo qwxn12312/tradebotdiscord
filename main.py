@@ -103,6 +103,29 @@ async def sign(interaction: discord.Interaction, player: discord.Member):
         f"Signed by {interaction.user.mention}"
     )
 
+@client.tree.command(name="release", description="Release a player from your team")
+@app_commands.describe(player="The player to release")
+async def release(interaction: discord.Interaction, player: discord.Member):
+    if not is_authorized(interaction.user):
+        return await interaction.response.send_message("Only captains and admins can use this command.", ephemeral=True)
+
+    player_team = get_team_role(player)
+    if not player_team:
+        return await interaction.response.send_message(f"{player.mention} is not on any team.", ephemeral=True)
+
+    signer_team = get_team_role(interaction.user)
+    if not interaction.user.guild_permissions.administrator and (not signer_team or signer_team.id != player_team.id):
+        return await interaction.response.send_message(f"You can only release players from your own team.", ephemeral=True)
+
+    await interaction.response.defer()
+    await player.remove_roles(player_team)
+
+    await interaction.followup.send(
+        f"📤 **PLAYER RELEASED**\n\n"
+        f"{player.mention} has been released from **{player_team.name}**.\n\n"
+        f"Released by {interaction.user.mention}"
+    )
+
 @client.tree.command(name="roster", description="List all players on each team")
 async def roster(interaction: discord.Interaction):
     if not is_authorized(interaction.user):

@@ -78,6 +78,31 @@ class ConfirmTrade(discord.ui.View):
             view=self
         )
 
+@client.tree.command(name="sign", description="Sign an unsigned player to your team")
+@app_commands.describe(player="The player to sign")
+async def sign(interaction: discord.Interaction, player: discord.Member):
+    if not is_authorized(interaction.user):
+        return await interaction.response.send_message("Only captains and admins can use this command.", ephemeral=True)
+
+    if get_team_role(player):
+        return await interaction.response.send_message(f"{player.mention} is already on a team. Use `/trade` to move them.", ephemeral=True)
+
+    signer_team = get_team_role(interaction.user)
+    if not signer_team and not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("You are not on a team, so you cannot sign players.", ephemeral=True)
+
+    if not signer_team:
+        return await interaction.response.send_message("Admins must use `/freetransfer` to assign players. You need to be on a team to use `/sign`.", ephemeral=True)
+
+    await interaction.response.defer()
+    await player.add_roles(signer_team)
+
+    await interaction.followup.send(
+        f"✅ **PLAYER SIGNED**\n\n"
+        f"{player.mention} has been signed to **{signer_team.name}**.\n\n"
+        f"Signed by {interaction.user.mention}"
+    )
+
 @client.tree.command(name="roster", description="List all players on each team")
 async def roster(interaction: discord.Interaction):
     if not is_authorized(interaction.user):

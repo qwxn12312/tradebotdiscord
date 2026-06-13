@@ -40,6 +40,13 @@ def get_team_role(member):
             return role
     return None
 
+def is_captain_of(member, team_role):
+    return (
+        any(role.id == CAPTAIN_ROLE_ID for role in member.roles) and
+        get_team_role(member) is not None and
+        get_team_role(member).id == team_role.id
+    )
+
 async def move_players(players, new_role):
     for player in players:
         old_role = get_team_role(player)
@@ -47,16 +54,97 @@ async def move_players(players, new_role):
             await player.remove_roles(old_role)
         await player.add_roles(new_role)
 
-class ConfirmTrade(discord.ui.View):
+def trade_message(team_a_players, team_b_players, team_a_role, team_b_role, a_accepted, b_accepted, status="pending"):
+    team_a_names = "\n".join([f"• {p.mention}" for p in team_a_players])
+    team_b_names = "\n".join([f"• {p.mention}" for p in team_b_players])
+    a_status = "✅" if a_accepted else "⏳"
+    b_status = "✅" if b_accepted else "⏳"
+
+    if status == "confirmed":
+        return (
+            f"✅ **TRADE CONFIRMED**\n\n"
+            f"**{team_b_role.name} receive:**\n{team_a_names}\n\n"
+            f"**{team_a_role.name} receive:**\n{team_b_names}"
+        )
+
+    footer = (
+        "⏳ Waiting for admin to confirm the trade."
+        if a_accepted and b_accepted
+        else "Both captains must accept before an admin can confirm."
+    )
+
+    return (
+        f"🔄 **TRADE PENDING**\n\n"
+        f"**{team_b_role.name} receive:**\n{team_a_names}\n\n"
+        f"**{team_a_role.name} receive:**\n{team_b_names}\n\n"
+        f"{a_status} **{team_a_role.name}** captain acceptance\n"
+        f"{b_status} **{team_b_role.name}** captain acceptance\n\n"
+        f"{footer}"
+    )
+
+class TradeView(discord.ui.View):
     def __init__(self, team_a_players, team_b_players, team_a_role, team_b_role):
         super().__init__(timeout=None)
         self.team_a_players = team_a_players
         self.team_b_players = team_b_players
         self.team_a_role = team_a_role
         self.team_b_role = team_b_role
+        self.team_a_accepted = False
+        self.team_b_accepted = False
+        self.confirm_button.disabled = True
 
-    @discord.ui.button(label="Confirm Trade", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Accept (Team A)", style=discord.ButtonStyle.green)
+    async def accept_team_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not (is_captain_of(interaction.user, self.team_a_role) or interaction.user.guild_permissions.administrator):
+            return await interaction.response.send_message(
+                f"Only the captain of **{self.team_a_role.name}** can accept for their team.", ephemeral=True
+            )
+        if self.team_a_accepted:
+            return await interaction.response.send_message("This team has already accepted.", ephemeral=True)
+
+        self.team_a_accepted = True
+        button.disabled = True
+        button.label = f"✅ {self.team_a_role.name} Accepted"
+
+        if self.team_a_accepted and self.team_b_accepted:
+            self.confirm_button.disabled = False
+
+        await interaction.response.edit_message(
+            content=trade_message(
+                self.team_a_players, self.team_b_players,
+                self.team_a_role, self.team_b_role,
+                self.team_a_accepted, self.team_b_accepted
+            ),
+            view=self
+        )
+
+    @discord.ui.button(label="Accept (Team B)", style=discord.ButtonStyle.green)
+    async def accept_team_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not (is_captain_of(interaction.user, self.team_b_role) or interaction.user.guild_permissions.administrator):
+            return await interaction.response.send_message(
+                f"Only the captain of **{self.team_b_role.name}** can accept for their team.", ephemeral=True
+            )
+        if self.team_b_accepted:
+            return await interaction.response.send_message("This team has already accepted.", ephemeral=True)
+
+        self.team_b_accepted = True
+        button.disabled = True
+        button.label = f"✅ {self.team_b_role.name} Accepted"
+
+        if self.team_a_accepted and self.team_b_accepted:
+            self.confirm_button.disabled = False
+
+        await interaction.response.edit_message(
+            content=trade_message(
+                self.team_a_players, self.team_b_players,
+                self.team_a_role, self.team_b_role,
+                self.team_a_accepted, self.team_b_accepted
+            ),
+            view=self
+        )
+
+    @discord.ui.button(label="Confirm Trade (Admin)", style=discord.ButtonStyle.blurple)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Only admins can confirm trades.", ephemeral=True)
 
@@ -65,20 +153,78 @@ class ConfirmTrade(discord.ui.View):
         await move_players(self.team_a_players, self.team_b_role)
         await move_players(self.team_b_players, self.team_a_role)
 
-        team_a_names = "\n".join([f"• {p.mention}" for p in self.team_a_players])
-        team_b_names = "\n".join([f"• {p.mention}" for p in self.team_b_players])
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.message.edit(
+            content=trade_message(
+                self.team_a_players, self.team_b_players,
+                self.team_a_role, self.team_b_role,
+                True, True, status="confirmed"
+            ) + f"\n\nConfirmed by {interaction.user.mention}",
+            view=self
+        )
+
+class ConfirmSign(discord.ui.View):
+    def __init__(self, player, team_role, requested_by):
+        super().__init__(timeout=None)
+        self.player = player
+        self.team_role = team_role
+        self.requested_by = requested_by
+        self.player_confirmed = False
+        self.approve_button.disabled = True
+
+    @discord.ui.button(label="Accept Signing", style=discord.ButtonStyle.green)
+    async def player_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.player.id:
+            return await interaction.response.send_message("Only the player being signed can accept.", ephemeral=True)
+
+        self.player_confirmed = True
+        button.disabled = True
+        button.label = "✅ Player Accepted"
+        self.approve_button.disabled = False
+
+        await interaction.response.edit_message(
+            content=
+            f"📋 **SIGNING PENDING — ADMIN APPROVAL NEEDED**\n\n"
+            f"{self.player.mention} → **{self.team_role.name}**\n\n"
+            f"✅ Player has accepted\n\n"
+            f"Requested by {self.requested_by.mention}\n\n"
+            f"Waiting for an admin to approve.",
+            view=self
+        )
+
+    @discord.ui.button(label="Approve (Admin)", style=discord.ButtonStyle.blurple)
+    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Only admins can approve signings.", ephemeral=True)
+
+        await interaction.response.defer()
+        await self.player.add_roles(self.team_role)
 
         for item in self.children:
             item.disabled = True
 
         await interaction.message.edit(
             content=
-            f"✅ **TRADE CONFIRMED**\n\n"
-            f"**{self.team_b_role.name} receive:**\n"
-            f"{team_a_names}\n\n"
-            f"**{self.team_a_role.name} receive:**\n"
-            f"{team_b_names}\n\n"
-            f"Confirmed by {interaction.user.mention}",
+            f"✅ **SIGNING APPROVED**\n\n"
+            f"{self.player.mention} has been signed to **{self.team_role.name}**.\n\n"
+            f"Requested by {self.requested_by.mention} • Approved by {interaction.user.mention}",
+            view=self
+        )
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Only admins can reject signings.", ephemeral=True)
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(
+            content=
+            f"❌ **SIGNING REJECTED**\n\n"
+            f"{self.player.mention} to **{self.team_role.name}** was rejected by {interaction.user.mention}.",
             view=self
         )
 
@@ -96,15 +242,18 @@ async def sign(interaction: discord.Interaction, player: discord.Member):
         return await interaction.response.send_message("You are not on a team, so you cannot sign players.", ephemeral=True)
 
     if not signer_team:
-        return await interaction.response.send_message("Admins must use `/freetransfer` to assign players. You need to be on a team to use `/sign`.", ephemeral=True)
+        return await interaction.response.send_message("You need to be on a team to use `/sign`.", ephemeral=True)
 
     await interaction.response.defer()
-    await player.add_roles(signer_team)
+
+    view = ConfirmSign(player, signer_team, interaction.user)
 
     await interaction.followup.send(
-        f"✅ **PLAYER SIGNED**\n\n"
-        f"{player.mention} has been signed to **{signer_team.name}**.\n\n"
-        f"Signed by {interaction.user.mention}"
+        f"📋 **SIGNING PENDING**\n\n"
+        f"{player.mention} → **{signer_team.name}**\n\n"
+        f"Requested by {interaction.user.mention}\n\n"
+        f"Waiting for an admin to approve.",
+        view=view
     )
 
 @client.tree.command(name="release", description="Release a player from your team")
@@ -119,7 +268,7 @@ async def release(interaction: discord.Interaction, player: discord.Member):
 
     signer_team = get_team_role(interaction.user)
     if not interaction.user.guild_permissions.administrator and (not signer_team or signer_team.id != player_team.id):
-        return await interaction.response.send_message(f"You can only release players from your own team.", ephemeral=True)
+        return await interaction.response.send_message("You can only release players from your own team.", ephemeral=True)
 
     await interaction.response.defer()
     await player.remove_roles(player_team)
@@ -195,18 +344,10 @@ async def trade(
         if not get_team_role(player):
             return await interaction.followup.send(f"{player.mention} has no team role.", ephemeral=True)
 
-    team_a_names = "\n".join([f"• {p.mention}" for p in team_a_players])
-    team_b_names = "\n".join([f"• {p.mention}" for p in team_b_players])
-
-    view = ConfirmTrade(team_a_players, team_b_players, team_a_role, team_b_role)
+    view = TradeView(team_a_players, team_b_players, team_a_role, team_b_role)
 
     await interaction.followup.send(
-        f"🔄 **TRADE PENDING**\n\n"
-        f"**{team_b_role.name} receive:**\n"
-        f"{team_a_names}\n\n"
-        f"**{team_a_role.name} receive:**\n"
-        f"{team_b_names}\n\n"
-        f"Waiting for an admin to confirm.",
+        content=trade_message(team_a_players, team_b_players, team_a_role, team_b_role, False, False),
         view=view
     )
 

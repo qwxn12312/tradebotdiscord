@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord import app_commands
 
@@ -69,6 +70,8 @@ async def update_roster_message(guild):
     channel = guild.get_channel(ROSTER_CHANNEL_ID)
     if not channel:
         return
+
+    await asyncio.sleep(2)
 
     lines = []
     for role_id in TEAM_ROLE_IDS:

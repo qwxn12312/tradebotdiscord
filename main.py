@@ -16,6 +16,7 @@ TEAM_ROLE_IDS = [
 ]
 
 CAPTAIN_ROLE_ID = 1187722813386276885
+ROSTER_CAP = 20
 
 def is_authorized(member):
     if member.guild_permissions.administrator:
@@ -244,6 +245,12 @@ async def sign(interaction: discord.Interaction, player: discord.Member):
     if not signer_team:
         return await interaction.response.send_message("You need to be on a team to use `/sign`.", ephemeral=True)
 
+    if len(signer_team.members) >= ROSTER_CAP:
+        return await interaction.response.send_message(
+            f"**{signer_team.name}** is full ({ROSTER_CAP}/{ROSTER_CAP} players). Release a player before signing a new one.",
+            ephemeral=True
+        )
+
     await interaction.response.defer()
 
     view = ConfirmSign(player, signer_team, interaction.user)
@@ -293,12 +300,12 @@ async def roster(interaction: discord.Interaction):
         role = guild.get_role(role_id)
         if not role:
             continue
-        members = [m for m in guild.members if role in m.roles]
+        members = role.members
         if members:
             names = "\n".join([f"• {m.mention}" for m in members])
-            lines.append(f"**{role.name}** ({len(members)} players)\n{names}")
+            lines.append(f"**{role.name}** ({len(members)}/{ROSTER_CAP} players)\n{names}")
         else:
-            lines.append(f"**{role.name}** — no players")
+            lines.append(f"**{role.name}** — no players (0/{ROSTER_CAP})")
 
     if not lines:
         return await interaction.followup.send("No team roles found.", ephemeral=True)
@@ -343,6 +350,20 @@ async def trade(
     for player in team_a_players + team_b_players:
         if not get_team_role(player):
             return await interaction.followup.send(f"{player.mention} has no team role.", ephemeral=True)
+
+    team_a_after = len(team_a_role.members) - len(team_a_players) + len(team_b_players)
+    team_b_after = len(team_b_role.members) - len(team_b_players) + len(team_a_players)
+
+    if team_a_after > ROSTER_CAP:
+        return await interaction.followup.send(
+            f"This trade would put **{team_a_role.name}** over the {ROSTER_CAP}-player cap ({team_a_after} players).",
+            ephemeral=True
+        )
+    if team_b_after > ROSTER_CAP:
+        return await interaction.followup.send(
+            f"This trade would put **{team_b_role.name}** over the {ROSTER_CAP}-player cap ({team_b_after} players).",
+            ephemeral=True
+        )
 
     view = TradeView(team_a_players, team_b_players, team_a_role, team_b_role)
 

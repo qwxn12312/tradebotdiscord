@@ -266,7 +266,7 @@ async def sign(interaction: discord.Interaction, player: discord.Member):
         f"📋 **SIGNING PENDING**\n\n"
         f"{player.mention} → **{signer_team.name}**\n\n"
         f"Requested by {interaction.user.mention}\n\n"
-        f"Waiting for an admin to approve.",
+        f"⏳ Waiting for {player.mention} to accept.",
         view=view
     )
 
@@ -301,25 +301,47 @@ async def roster(interaction: discord.Interaction):
     await interaction.response.defer()
 
     guild = interaction.guild
-    if not guild.chunked:
-        await guild.chunk()
     lines = []
+    missing_ids = []
 
     for role_id in TEAM_ROLE_IDS:
         role = guild.get_role(role_id)
         if not role:
+            missing_ids.append(str(role_id))
             continue
         members = role.members
         if members:
-            names = "\n".join([f"• {m.mention}" for m in members])
+            names = "\n".join([f"• {m.display_name}" for m in members])
             lines.append(f"**{role.name}** ({len(members)}/{ROSTER_CAP} players)\n{names}")
         else:
             lines.append(f"**{role.name}** — no players (0/{ROSTER_CAP})")
 
-    if not lines:
-        return await interaction.followup.send("No team roles found.", ephemeral=True)
+    if missing_ids:
+        lines.append(f"\n⚠️ **Could not find roles with these IDs** (update TEAM_ROLE_IDS in the code):\n" + "\n".join(missing_ids))
 
-    await interaction.followup.send("📋 **TEAM ROSTERS**\n\n" + "\n\n".join(lines))
+    if not lines:
+        return await interaction.followup.send(
+            f"❌ No team roles found. None of the configured role IDs exist in this server:\n" + "\n".join(str(i) for i in TEAM_ROLE_IDS),
+            ephemeral=True
+        )
+
+    content = "📋 **TEAM ROSTERS**\n\n" + "\n\n".join(lines)
+    if len(content) > 2000:
+        chunks = []
+        current = "📋 **TEAM ROSTERS**\n\n"
+        for line in lines:
+            if len(current) + len(line) + 2 > 2000:
+                chunks.append(current)
+                current = line + "\n\n"
+            else:
+                current += line + "\n\n"
+        if current:
+            chunks.append(current)
+        await interaction.followup.send(chunks[0])
+        for chunk in chunks[1:]:
+            await interaction.channel.send(chunk)
+    else:
+        await interaction.followup.send(content)
 
 
 @client.tree.command(name="trade", description="Create a trade request between teams")

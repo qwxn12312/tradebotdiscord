@@ -3,6 +3,8 @@ import discord
 from discord import app_commands
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN environment variable is not set. Add it in Railway → Variables.")
 
 TEAM_ROLE_IDS = [
     1514913462185103440,

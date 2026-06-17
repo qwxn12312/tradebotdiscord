@@ -19,6 +19,7 @@ TEAM_ROLE_IDS = [
 
 CAPTAIN_ROLE_ID = 1187722813386276885
 ROSTER_CAP = 20
+ROSTER_CHANNEL_ID = 1516697443453112400
 
 def is_authorized(member):
     if member.guild_permissions.administrator:
@@ -61,6 +62,36 @@ async def move_players(players, new_role):
         if old_role:
             await player.remove_roles(old_role)
         await player.add_roles(new_role)
+
+async def update_roster_message(guild):
+    if not ROSTER_CHANNEL_ID:
+        return
+    channel = guild.get_channel(ROSTER_CHANNEL_ID)
+    if not channel:
+        return
+
+    lines = []
+    for role_id in TEAM_ROLE_IDS:
+        role = guild.get_role(role_id)
+        if not role:
+            continue
+        members = role.members
+        if members:
+            pings = " ".join([m.mention for m in members])
+            lines.append(f"**{role.name}** ({len(members)}/{ROSTER_CAP})\n{pings}")
+        else:
+            lines.append(f"**{role.name}** — no players (0/{ROSTER_CAP})")
+
+    content = "📋 **LIVE TEAM ROSTERS**\n\n" + "\n\n".join(lines)
+
+    pinned = await channel.pins()
+    bot_pin = next((m for m in pinned if m.author.id == client.user.id), None)
+
+    if bot_pin:
+        await bot_pin.edit(content=content)
+    else:
+        msg = await channel.send(content)
+        await msg.pin()
 
 def trade_message(team_a_players, team_b_players, team_a_role, team_b_role, a_accepted, b_accepted, status="pending"):
     team_a_names = "\n".join([f"• {p.mention}" for p in team_a_players])
@@ -172,6 +203,7 @@ class TradeView(discord.ui.View):
             ) + f"\n\nConfirmed by {interaction.user.mention}",
             view=self
         )
+        await update_roster_message(interaction.guild)
 
 class ConfirmSign(discord.ui.View):
     def __init__(self, player, team_role, requested_by):
@@ -220,6 +252,7 @@ class ConfirmSign(discord.ui.View):
             f"Requested by {self.requested_by.mention} • Approved by {interaction.user.mention}",
             view=self
         )
+        await update_roster_message(interaction.guild)
 
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.red)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -292,6 +325,7 @@ async def release(interaction: discord.Interaction, player: discord.Member):
         f"{player.mention} has been released from **{player_team.name}**.\n\n"
         f"Released by {interaction.user.mention}"
     )
+    await update_roster_message(interaction.guild)
 
 @client.tree.command(name="roster", description="List all players on each team")
 async def roster(interaction: discord.Interaction):

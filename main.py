@@ -19,8 +19,9 @@ TEAM_ROLE_IDS = [
 ]
 
 CAPTAIN_ROLE_ID = 1187722813386276885
-ROSTER_CAP = 20
+ROSTER_CAP = 21
 ROSTER_CHANNEL_ID = 1516697443453112400
+ROSTER_MESSAGE_ID = 1516699793907253301
 
 def is_authorized(member):
     if member.guild_permissions.administrator:
@@ -87,12 +88,10 @@ async def update_roster_message(guild):
 
     content = "📋 **LIVE TEAM ROSTERS**\n\n" + "\n\n".join(lines)
 
-    pinned = await channel.pins()
-    bot_pin = next((m for m in pinned if m.author.id == client.user.id), None)
-
-    if bot_pin:
-        await bot_pin.edit(content=content)
-    else:
+    try:
+        msg = await channel.fetch_message(ROSTER_MESSAGE_ID)
+        await msg.edit(content=content)
+    except discord.NotFound:
         msg = await channel.send(content)
         await msg.pin()
 

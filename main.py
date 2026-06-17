@@ -35,6 +35,11 @@ class Client(discord.Client):
     async def setup_hook(self):
         await self.tree.sync()
 
+    async def on_ready(self):
+        print(f"Logged in as {self.user}")
+        for guild in self.guilds:
+            await guild.chunk()
+
 client = Client()
 
 def get_team_role(member):
@@ -296,6 +301,8 @@ async def roster(interaction: discord.Interaction):
     await interaction.response.defer()
 
     guild = interaction.guild
+    if not guild.chunked:
+        await guild.chunk()
     lines = []
 
     for role_id in TEAM_ROLE_IDS:

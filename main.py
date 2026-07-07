@@ -77,8 +77,8 @@ async def update_roster_message(guild):
             continue
         members = role.members
         if members:
-            pings = " ".join([m.mention for m in members])
-            lines.append(f"**{role.name}** ({len(members)}/{ROSTER_CAP})\n{pings}")
+            names = "\n".join([f"• {m.display_name}" for m in members])
+            lines.append(f"**{role.name}** ({len(members)}/{ROSTER_CAP})\n{names}")
         else:
             lines.append(f"**{role.name}** — no players (0/{ROSTER_CAP})")
 
